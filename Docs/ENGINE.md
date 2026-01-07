@@ -173,7 +173,7 @@ It prints:
 
 ---
 
-## How Person 3 should cite results in the writeup
+## How Person 3 should cite results in the writeup (suggestion)
 
 - Report: `price ± 1.96 * stderr` as the 95% CI
 - Mention if antithetic / control variate was used
