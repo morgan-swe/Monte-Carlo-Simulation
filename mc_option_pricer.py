@@ -8,7 +8,8 @@ from typing import Optional, Literal
 
 import numpy as np
 
-# types
+
+#types
 OptionType = Literal["call", "put"]
 
 
