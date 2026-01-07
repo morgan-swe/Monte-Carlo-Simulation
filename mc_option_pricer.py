@@ -22,7 +22,20 @@ class MCResult:
     antithetic: bool
 
 
+@dataclass(frozen=True)
+class RiskResult:
+    p01: float
+    p05: float
+    median: float
+    mean: float
+    p95: float
+    p99: float
+    n_sims: int
+    antithetic: bool
+
+
 def _validate_inputs(S0: float, K: float, r: float, sigma: float, T: float, n_sims: int) -> None:
+    # quick input validation so we don’t get silent nonsense
     if S0 <= 0 or K <= 0:
         raise ValueError("S0 and K must be > 0.")
     if sigma < 0:
@@ -31,6 +44,100 @@ def _validate_inputs(S0: float, K: float, r: float, sigma: float, T: float, n_si
         raise ValueError("T must be > 0.")
     if n_sims < 10:
         raise ValueError("n_sims must be >= 10.")
+
+
+def simulate_terminal_prices_gbm(
+    S0: float,
+    r: float,
+    sigma: float,
+    T: float,
+    n_sims: int = 200_000,
+    seed: Optional[int] = 42,
+    antithetic: bool = False,
+) -> np.ndarray:
+    """
+    Simulates terminal prices S_T under risk-neutral GBM.
+
+    Shared by:
+      - option pricing (payoffs from S_T)
+      - risk metrics (returns quantiles from S_T)
+    """
+    # K isn't needed here, but validate the core params (use dummy K=1.0)
+    _validate_inputs(S0, 1.0, r, sigma, T, n_sims)
+
+    # seeded RNG so results are repeatable (same seed => same output)
+    rng = np.random.default_rng(seed)
+
+    drift = (r - 0.5 * sigma * sigma) * T
+    vol = sigma * math.sqrt(T)
+
+    # antithetic = pair Z and -Z
+    if not antithetic:
+        Z = rng.standard_normal(n_sims)
+    else:
+        n_half = (n_sims + 1) // 2
+        Z_half = rng.standard_normal(n_half)
+        Z = np.concatenate([Z_half, -Z_half])[:n_sims]
+
+    ST = S0 * np.exp(drift + vol * Z)
+    return ST
+
+
+def fifth_percentile_return_gbm(
+    S0: float,
+    r: float,
+    sigma: float,
+    T: float,
+    n_sims: int = 200_000,
+    seed: Optional[int] = 42,
+    antithetic: bool = False,
+) -> float:
+    """
+    Returns the 5th percentile of the simple return distribution:
+        R = (S_T - S0) / S0
+
+    This is basically a VaR-style tail return metric (lower tail).
+    """
+    ST = simulate_terminal_prices_gbm(
+        S0=S0,
+        r=r,
+        sigma=sigma,
+        T=T,
+        n_sims=n_sims,
+        seed=seed,
+        antithetic=antithetic,
+    )
+
+    returns = (ST - S0) / S0
+    return float(np.percentile(returns, 5))
+
+
+def risk_summary_returns_gbm(
+    S0: float,
+    r: float,
+    sigma: float,
+    T: float,
+    n_sims: int = 200_000,
+    seed: Optional[int] = 42,
+    antithetic: bool = False,
+) -> RiskResult:
+    """
+    Convenience summary of return distribution tails.
+    Person 3 can use this for reporting/tables.
+    """
+    ST = simulate_terminal_prices_gbm(S0, r, sigma, T, n_sims, seed, antithetic)
+    R = (ST - S0) / S0
+
+    return RiskResult(
+        p01=float(np.percentile(R, 1)),
+        p05=float(np.percentile(R, 5)),
+        median=float(np.percentile(R, 50)),
+        mean=float(np.mean(R)),
+        p95=float(np.percentile(R, 95)),
+        p99=float(np.percentile(R, 99)),
+        n_sims=len(R),
+        antithetic=antithetic,
+    )
 
 
 def discounted_payoffs_and_disc_ST_gbm(
@@ -55,17 +162,13 @@ def discounted_payoffs_and_disc_ST_gbm(
     """
     _validate_inputs(S0, K, r, sigma, T, n_sims)
 
-    # RNG w/ seed so the results are repeatable (same seed = same outputs)
     rng = np.random.default_rng(seed)
-
-    # discount factor
     disc = math.exp(-r * T)
 
-    # GBM pieces
     drift = (r - 0.5 * sigma * sigma) * T
     vol = sigma * math.sqrt(T)
 
-    # generate normals (antithetic = pair Z and -Z)
+    # antithetic = pair Z and -Z
     if not antithetic:
         Z = rng.standard_normal(n_sims)
     else:
@@ -73,10 +176,8 @@ def discounted_payoffs_and_disc_ST_gbm(
         Z_half = rng.standard_normal(n_half)
         Z = np.concatenate([Z_half, -Z_half])[:n_sims]
 
-    # terminal price under risk-neutral GBM
     ST = S0 * np.exp(drift + vol * Z)
 
-    # payoff at expiry
     if option_type == "call":
         payoff = np.maximum(ST - K, 0.0)
     elif option_type == "put":
@@ -148,7 +249,7 @@ def mc_european_option_price(
 
     price = float(np.mean(discounted))
 
-    # stats (stderr = std/sqrt(N))
+    # stderr = sample_std / sqrt(N)
     sample_std = float(np.std(discounted, ddof=1))
     stderr = sample_std / math.sqrt(len(discounted))
     ci_low = price - 1.96 * stderr
@@ -173,7 +274,7 @@ def mc_european_option_price_control_variate(
 
     Control:
       Y = discounted_ST = e^{-rT} * S_T
-      E[Y] = S0 (this assumes no dividends)
+      E[Y] = S0 (assumes no dividends)
 
     Estimator:
       X_cv = X - b (Y - E[Y])
@@ -191,7 +292,7 @@ def mc_european_option_price_control_variate(
         antithetic=antithetic,
     )
 
-    EY = S0  # if we add dividend yield q later, this becomes S0 * exp(-qT)
+    EY = S0  # if dividends q exist later, use S0 * exp(-qT)
 
     # faster than np.cov (same idea tho)
     Yc = Y - Y.mean()
@@ -221,7 +322,7 @@ def put_call_parity_gap(call_price: float, put_price: float, S0: float, K: float
     Put-call parity (no dividends):
       C - P = S0 - K e^{-rT}
 
-    This returns the "gap" (LHS - RHS). Should be close to 0 if everything is working.
+    Returns the "gap" (LHS - RHS). Should be close to 0 if everything is working.
     """
     rhs = S0 - K * math.exp(-r * T)
     return (call_price - put_price) - rhs
@@ -278,6 +379,22 @@ def quick_demo() -> None:
     print(f"  price:  {res_cv.price:.6f}")
     print(f"  stderr: {res_cv.stderr:.6f}")
     print(f"  95% CI: [{res_cv.ci_low:.6f}, {res_cv.ci_high:.6f}]")
+
+    # risk metric: 5th percentile return (VaR-style)
+    p05 = fifth_percentile_return_gbm(S0, r, sigma, T, n_sims=n_sims, seed=42, antithetic=True)
+    print()
+    print("5th percentile return (VaR-style):", f"{p05:.6%}")
+
+    # quick return distribution summary (nice for tables / report)
+    risk = risk_summary_returns_gbm(S0, r, sigma, T, n_sims=n_sims, seed=42, antithetic=True)
+    print()
+    print("Return distribution summary")
+    print(f"  p01: {risk.p01:.6%}")
+    print(f"  p05: {risk.p05:.6%}")
+    print(f"  med: {risk.median:.6%}")
+    print(f"  mean:{risk.mean:.6%}")
+    print(f"  p95: {risk.p95:.6%}")
+    print(f"  p99: {risk.p99:.6%}")
 
     # put-call parity sanity check (no dividends assumption)
     call_cv = mc_european_option_price_control_variate(
