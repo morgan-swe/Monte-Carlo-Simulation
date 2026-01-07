@@ -1,14 +1,18 @@
 # Monte Carlo Engine (Person 2) — ENGINE.md
 
 ## What this is
-This file explains the Monte Carlo “engine” I implemented for pricing European call/put options under GBM.  
-If you’re Person 3, this tells you exactly what functions to call for convergence plots and sanity checks.
+This file explains the Monte Carlo “engine” I implemented for:
+- Pricing European call/put options under GBM
+- Computing **tail risk metrics** (5th percentile return / VaR-style)
+- Producing arrays for **convergence plots** and diagnostics
+
+If you’re Person 3, this tells you exactly what functions to call for plots, tables, and sanity checks.
 
 ---
 
 ## Model + Inputs (what the code assumes)
 
-We simulate terminal stock price under risk-neutral GBM:
+We simulate terminal stock price under **risk-neutral GBM**:
 
 S_T = S0 * exp((r - 0.5*sigma^2)T + sigma*sqrt(T) * Z),  Z ~ N(0,1)
 
@@ -28,13 +32,13 @@ S_T = S0 * exp((r - 0.5*sigma^2)T + sigma*sqrt(T) * Z),  Z ~ N(0,1)
 - Risk-neutral pricing
 
 ---
-
+/Users/geff/Downloads/ENGINE_updated.md
 ## Reproducibility (why results repeat)
 
-By default we use a fixed seed (`seed=42`) with NumPy’s RNG.  
-That means if you rerun with the same seed, you should get the exact same output.
+By default the engine uses a fixed seed (`seed=42`) with NumPy’s RNG.  
+That means if you rerun with the same seed, you should get the **exact same output**.
 
-If you want different randomness, change the seed.
+If you want different randomness, change the seed or pass `seed=None`.
 
 ---
 
@@ -127,6 +131,71 @@ payoffs, disc_ST = discounted_payoffs_and_disc_ST_gbm(...)
 
 ---
 
+## 6) Risk-style metrics (5th percentile return + return summary)
+
+I also added helpers to compute **tail returns** from the same GBM simulation.
+
+Important note (keep it real):
+- These returns are generated under **risk-neutral GBM** (drift uses `r`), not real-world expected returns.
+- Still useful as a **VaR-style tail metric** / distribution summary under the model assumptions.
+
+### A) Simulate terminal prices (base function)
+
+If you just want the raw simulated terminal prices:
+
+```python
+ST = simulate_terminal_prices_gbm(
+    S0, r, sigma, T,
+    n_sims=200_000,
+    seed=42,
+    antithetic=True
+)
+```
+
+Returns an array of `S_T`.
+
+---
+
+### B) 5th percentile return (what the handout asks for)
+
+Return definition:
+
+R = (S_T - S0) / S0
+
+Call:
+
+```python
+p05 = fifth_percentile_return_gbm(
+    S0, r, sigma, T,
+    n_sims=200_000,
+    seed=42,
+    antithetic=True
+)
+```
+
+This returns a single float like `-0.0723` (≈ `-7.23%`).
+
+---
+
+### C) Full return distribution summary (for tables / report)
+
+```python
+risk = risk_summary_returns_gbm(
+    S0, r, sigma, T,
+    n_sims=200_000,
+    seed=42,
+    antithetic=True
+)
+```
+
+Returns a `RiskResult` with:
+- `p01`, `p05`, `median`, `mean`, `p95`, `p99`
+- plus `n_sims` and whether antithetic was used
+
+This is basically “here’s the distribution” in one object so Person 3 doesn’t have to recompute percentiles manually.
+
+---
+
 ## Sanity checks I recommend (Person 3)
 
 ### Put–call parity (no dividends)
@@ -158,17 +227,18 @@ The gap should be **close to 0** relative to Monte Carlo noise.
 
 ## Quick run (demo)
 
-Run:
+From the repo root, run:
 
 ```bash
 python ../mc_option_pricer.py
-
 ```
 
 It prints:
 - Plain MC results
 - Antithetic results
 - Control variate results
+- 5th percentile return (VaR-style)
+- Return distribution summary
 - Put–call parity gap
 
 ---
@@ -178,3 +248,4 @@ It prints:
 - Report: `price ± 1.96 * stderr` as the 95% CI
 - Mention if antithetic / control variate was used
 - Mention `n_sims` and seed for reproducibility
+- For risk section, report the **5th percentile return** and optionally the full summary table
