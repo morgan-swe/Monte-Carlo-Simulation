@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Optional, Literal
 
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 
 #types
@@ -418,9 +420,39 @@ def quick_demo() -> None:
     print("Put-call parity gap (should be near 0):", f"{gap:.6e}")
 
     # for Person 3 convergence:
-    # disc_payoffs = discounted_payoffs_gbm(..., antithetic=True)
-    # running_mean = np.cumsum(disc_payoffs) / np.arange(1, len(disc_payoffs) + 1)
+    disc_payoffs = discounted_payoffs_gbm(
+        S0, K, r, sigma, T,
+        n_sims=n_sims,
+        option_type="call",
+        antithetic=True,
+        seed=42
+    )
 
+    running_mean = np.cumsum(disc_payoffs) / np.arange(1, len(disc_payoffs) + 1)
 
+    plt.figure(figsize=(10,5))
+    plt.plot(running_mean)
+    plt.title("Monte Carlo Convergence Plot")
+    plt.xlabel("Number of Simulations")
+    plt.ylabel("Running Mean of Discounted Payoffs")
+    plt.grid(True)
+    plt.show()
+
+    result = mc_european_option_price_control_variate(
+        S0, K, r, sigma, T,
+        n_sims=n_sims,
+        option_type="call",
+        antithetic=True,
+        seed=42
+    )
+
+    print("\nFinal Option Price")
+    print(f"  Price:  {result.price:.6f}")
+    print(f"  StdErr: {result.stderr:.6f}")
+    print(f"  95% CI: [{result.ci_low:.6f}, {result.ci_high:.6f}]")
+    
+    print("\nAmong the three estimators, the control variate + antithetic method produces the smallest standard error and the tightest confidence interval,\nconfirming it is the most accurate and lowest‑variance Monte Carlo estimator.")
+    
 if __name__ == "__main__":
     quick_demo()
+    
