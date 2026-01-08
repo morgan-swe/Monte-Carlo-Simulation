@@ -105,7 +105,7 @@ Control variate uses:
 If you want a convergence plot, use:
 
 ```python
-payoffs = discounted_payoffs_gbm(
+disc_payoffs = discounted_payoffs_gbm(
     S0, K, r, sigma, T,
     n_sims=200_000,
     option_type="call",
@@ -113,7 +113,7 @@ payoffs = discounted_payoffs_gbm(
     antithetic=True
 )
 
-running_mean = np.cumsum(payoffs) / np.arange(1, len(payoffs) + 1)
+running_mean = np.cumsum(disc_payoffs) / np.arange(1, len(payoffs) + 1)
 ```
 
 This is the fastest way to get a convergence curve without rerunning the pricer N times.
@@ -244,8 +244,26 @@ It prints:
 ---
 
 ## How Person 3 should cite results in the writeup (suggestion)
-
-- Report: `price ± 1.96 * stderr` as the 95% CI
-- Mention if antithetic / control variate was used
-- Mention `n_sims` and seed for reproducibility
-- For risk section, report the **5th percentile return** and optionally the full summary table
+```python
+result = mc_european_option_price_control_variate(
+        S0, K, r, sigma, T,
+        n_sims=200000,
+        option_type="call",
+        seed=42,
+        antithetic=True,
+    )
+```
+- `S0`= 100.0
+- `K`= 100.0
+- `r`= 0.025
+- `sigma`= 0.20
+- `T`= 21 / 252
+- `n_sims`= 200,000
+- `option_type`= "call"
+- `seed`= 42
+- `antithetic`= True
+---
+- The final option price estimate is 2.410463, with a standard error of 0.003907, giving a 95% confidence interval of 2.410463 ± 1.96 × 0.003907 = [2.402805, 2.418122].
+- The estimate was computed using the control variate + antithetic Monte Carlo estimator to reduce variance.
+- The simulation used 200,000 paths with a fixed random seed (42) for reproducibility.
+- The 5th percentile return (VaR‑style) is −9.06%, indicating that in the worst 5% of scenarios, the return is below −9%.
