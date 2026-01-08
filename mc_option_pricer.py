@@ -438,13 +438,7 @@ def quick_demo() -> None:
     plt.grid(True)
     plt.show()
 
-    result = mc_european_option_price_control_variate(
-        S0, K, r, sigma, T,
-        n_sims=n_sims,
-        option_type="call",
-        antithetic=True,
-        seed=42
-    )
+    result = res_cv
 
     print("\nFinal Option Price")
     print(f"  Price:  {result.price:.6f}")
